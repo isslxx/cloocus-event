@@ -1308,12 +1308,28 @@ export default function MyDashboard() {
                 <button
                   onClick={async () => {
                     // 일시적 외부 의존성·청크 로드 실패를 흡수하기 위해 1회 자동 재시도.
+                    // 로고·직인을 fetch → dataURL 로 변환. html2canvas 가 외부 이미지 로드·디코드 타이밍에
+                    // 휘둘리지 않도록 모든 그림을 인라인으로 박는다. (production 에서 `createPattern` 0×0 canvas 에러 차단)
+                    const urlToDataUrl = async (url: string): Promise<string> => {
+                      const res = await fetch(url, { cache: 'force-cache' });
+                      if (!res.ok) throw new Error(`이미지 로드 실패: ${url} (${res.status})`);
+                      const blob = await res.blob();
+                      return await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result as string);
+                        reader.onerror = () => reject(new Error(`이미지 변환 실패: ${url}`));
+                        reader.readAsDataURL(blob);
+                      });
+                    };
+
                     const generateAndSave = async () => {
                       // qrcode 는 ESM module 필드가 없는 순수 CJS — 번들러/런타임에 따라 .default 가 undefined 인 케이스 방어.
-                      const [html2canvas, { jsPDF }, qrMod] = await Promise.all([
+                      const [html2canvas, { jsPDF }, qrMod, logoDataUrl, stampDataUrl] = await Promise.all([
                         import('html2canvas').then((m) => m.default),
                         import('jspdf'),
                         import('qrcode'),
+                        urlToDataUrl('/cloocus-logo.png'),
+                        urlToDataUrl('/stamp.png'),
                       ]);
                       const QRCode = (qrMod as unknown as { default?: typeof qrMod }).default ?? qrMod;
 
@@ -1339,8 +1355,8 @@ export default function MyDashboard() {
                         <div style="display:flex;width:100%;height:100%;background:#fff;">
                           <!-- 좌측 60% -->
                           <div style="width:60%;height:100%;padding:48px 50px 38px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box;">
-                            <!-- 좌측 상단: 로고 -->
-                            <img src="/cloocus-logo.png" style="width:120px;height:auto;" crossorigin="anonymous" />
+                            <!-- 좌측 상단: 로고 (dataURL 인라인 · 명시 높이로 0×0 회피) -->
+                            <img src="${logoDataUrl}" style="width:120px;height:45px;object-fit:contain;" />
 
                             <!-- 좌측 중심: CERTIFICATE OF COMPLETION -->
                             <div>
@@ -1356,7 +1372,7 @@ export default function MyDashboard() {
                                 <p style="font-size:10px;color:#4c2d96;margin:0 0 4px;font-weight:600;letter-spacing:1px;">Cloocus CEO</p>
                                 <div style="position:relative;display:inline-block;margin:0 0 4px;">
                                   <p style="font-size:14px;font-weight:700;color:#222;margin:0;position:relative;z-index:1;">Steve Hong</p>
-                                  <img src="/stamp.png" style="position:absolute;top:50%;right:-14px;transform:translateY(-50%);width:56px;height:56px;opacity:0.62;mix-blend-mode:multiply;pointer-events:none;z-index:2;" crossorigin="anonymous" />
+                                  <img src="${stampDataUrl}" style="position:absolute;top:50%;right:-14px;transform:translateY(-50%);width:56px;height:56px;opacity:0.62;mix-blend-mode:multiply;pointer-events:none;z-index:2;" />
                                 </div>
                               </div>
                               <!-- Issued on -->
@@ -1417,11 +1433,17 @@ export default function MyDashboard() {
                       document.body.appendChild(certEl);
 
                       try {
-                        // 이미지 로드 대기 (이제 모두 same-origin 또는 dataURL — 외부 호출 없음)
-                        const imgs = certEl.querySelectorAll('img');
-                        await Promise.all(Array.from(imgs).map((img) =>
-                          img.complete ? Promise.resolve() : new Promise<void>((r) => { img.onload = () => r(); img.onerror = () => r(); setTimeout(r, 2000); })
-                        ));
+                        // 이미지 디코드 완료 대기 — complete 체크만으로는 naturalWidth 0 인 상태도 통과하므로
+                        // decode() 로 실제 디코드까지 보장한다. (html2canvas createPattern 0×0 에러 차단)
+                        const imgs = Array.from(certEl.querySelectorAll('img'));
+                        await Promise.all(imgs.map(async (img) => {
+                          try { await img.decode(); } catch {
+                            // decode 실패 시 onload 폴백
+                            if (!img.complete) {
+                              await new Promise<void>((r) => { img.onload = () => r(); img.onerror = () => r(); setTimeout(r, 1500); });
+                            }
+                          }
+                        }));
 
                         const canvas = await html2canvas(certEl, { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false });
                         const imgData = canvas.toDataURL('image/png');
