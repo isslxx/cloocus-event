@@ -264,7 +264,9 @@ export default function MyDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const QRCode = (await import('qrcode')).default;
+        // qrcode 는 순수 CJS 패키지라 번들러에 따라 .default 가 비어 올 수 있어 양쪽 호환 처리.
+        const qrMod = await import('qrcode');
+        const QRCode = (qrMod as unknown as { default?: typeof qrMod }).default ?? qrMod;
         const url = `${window.location.origin}/verify/${registration.id}`;
         const dataUrl = await QRCode.toDataURL(url, {
           width: 400,
@@ -1307,11 +1309,13 @@ export default function MyDashboard() {
                   onClick={async () => {
                     // 일시적 외부 의존성·청크 로드 실패를 흡수하기 위해 1회 자동 재시도.
                     const generateAndSave = async () => {
-                      const [html2canvas, { jsPDF }, QRCode] = await Promise.all([
+                      // qrcode 는 ESM module 필드가 없는 순수 CJS — 번들러/런타임에 따라 .default 가 undefined 인 케이스 방어.
+                      const [html2canvas, { jsPDF }, qrMod] = await Promise.all([
                         import('html2canvas').then((m) => m.default),
                         import('jspdf'),
-                        import('qrcode').then((m) => m.default),
+                        import('qrcode'),
                       ]);
+                      const QRCode = (qrMod as unknown as { default?: typeof qrMod }).default ?? qrMod;
 
                       const issueDate = new Date();
                       const evtDate = new Date(registration.event_date);
@@ -1457,10 +1461,12 @@ export default function MyDashboard() {
                       try {
                         await generateAndSave();
                       } catch (err2) {
-                        const errName = (err2 as { name?: string })?.name || 'UnknownError';
+                        const e = err2 as { name?: string; message?: string };
+                        const errName = e?.name || 'UnknownError';
+                        const errMsg = (e?.message || '').slice(0, 140);
                         console.error('[my] 수료증 재시도도 실패:', err2);
                         trackCertificateDownloadFailed(registration.event_name, registration.event_category || '', errName);
-                        alert('수료증 발급에 실패했습니다.\n잠시 후 다시 시도해 주시거나, 페이지를 새로고침해 주세요.\n계속 같은 문제가 발생하면 marketing@cloocus.com 으로 알려주세요.');
+                        alert(`수료증 발급에 실패했습니다.\n잠시 후 다시 시도해 주시거나, 페이지를 새로고침해 주세요.\n계속 같은 문제가 발생하면 marketing@cloocus.com 으로 알려주세요.\n\n오류: ${errName}${errMsg ? ` — ${errMsg}` : ''}`);
                       }
                     }
                   }}
