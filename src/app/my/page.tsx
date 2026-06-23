@@ -1323,9 +1323,11 @@ export default function MyDashboard() {
                     };
 
                     const generateAndSave = async () => {
+                      // html2canvas v1.4.1 은 createPattern 0×0 등 알려진 렌더 버그가 있고 유지보수 중단 상태 →
+                      // 활발히 유지보수되는 fork(html2canvas-pro v2.x)로 교체. API 호환.
                       // qrcode 는 ESM module 필드가 없는 순수 CJS — 번들러/런타임에 따라 .default 가 undefined 인 케이스 방어.
                       const [html2canvas, { jsPDF }, qrMod, logoDataUrl, stampDataUrl] = await Promise.all([
-                        import('html2canvas').then((m) => m.default),
+                        import('html2canvas-pro').then((m) => m.default),
                         import('jspdf'),
                         import('qrcode'),
                         urlToDataUrl('/cloocus-logo.png'),
@@ -1448,9 +1450,24 @@ export default function MyDashboard() {
                           }
                         }));
 
-                        // 그라디언트 element 들이 실제로 0×0 이 아닌지 강제 reflow 후 확인.
-                        // 0 dim 인 element 가 있으면 그 자리를 빈 div 로 교체해 createPattern 폭주 차단.
+                        // 폰트 로딩 완료 대기 — Noto Sans KR 가 swap 중이면 layout 흔들려서 element 가 0×0 으로 잡힐 수 있음.
+                        // production 환경에서 첫 클릭 시 가장 위험한 타이밍.
+                        try {
+                          if (document.fonts?.ready) await document.fonts.ready;
+                          if (document.fonts?.load) {
+                            await Promise.all([
+                              document.fonts.load('14px "Noto Sans KR"'),
+                              document.fonts.load('700 24px "Noto Sans KR"'),
+                              document.fonts.load('800 64px "Noto Sans KR"'),
+                            ]).catch(() => {});
+                          }
+                        } catch { /* 폰트 API 미지원 환경 — 무시 */ }
+
+                        // 강제 reflow + double rAF — layout 이 실제로 settle 될 때까지 두 프레임 대기.
                         void certEl.getBoundingClientRect();
+                        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+
+                        // 그라디언트 element 들이 실제로 0×0 이 아닌지 확인 → 0 이면 background 제거해 createPattern 폭주 차단.
                         const gradientEls = Array.from(certEl.querySelectorAll<HTMLElement>('[style*="gradient"]'));
                         for (const el of gradientEls) {
                           const r = el.getBoundingClientRect();

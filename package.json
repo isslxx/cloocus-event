@@ -10,6 +10,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.102.1",
     "html2canvas": "^1.4.1",
+    "html2canvas-pro": "^2.1.0",
     "jspdf": "^4.2.1",
     "next": "16.2.3",
     "pptxgenjs": "^4.0.1",
