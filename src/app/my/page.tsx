@@ -1349,12 +1349,15 @@ export default function MyDashboard() {
                         errorCorrectionLevel: 'M',
                       });
 
+                      // html2canvas v1.4.1 은 그라디언트를 element 크기의 canvas 에 그린 뒤 createPattern 으로 채우기 때문에
+                      // 한 element 라도 0×0 으로 측정되면 InvalidStateError 가 난다. flex stretch / height:100% 체인을 모두
+                      // 제거하고 픽셀 치수로 고정한다. off-screen 도 fixed → absolute 로 바꿔 layout 안정성을 높인다.
                       const certEl = document.createElement('div');
-                      certEl.style.cssText = 'position:fixed;left:-9999px;top:0;width:1122px;height:794px;font-family:"Noto Sans KR",sans-serif;overflow:hidden;';
+                      certEl.style.cssText = 'position:absolute;left:-9999px;top:0;width:1122px;height:794px;font-family:"Noto Sans KR",sans-serif;overflow:hidden;';
                       certEl.innerHTML = `
-                        <div style="display:flex;width:100%;height:100%;background:#fff;">
-                          <!-- 좌측 60% -->
-                          <div style="width:60%;height:100%;padding:48px 50px 38px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box;">
+                        <div style="display:flex;width:1122px;height:794px;background:#fff;">
+                          <!-- 좌측 (673px) -->
+                          <div style="width:673px;height:794px;padding:48px 50px 38px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box;">
                             <!-- 좌측 상단: 로고 (dataURL 인라인 · 명시 높이로 0×0 회피) -->
                             <img src="${logoDataUrl}" style="width:120px;height:45px;object-fit:contain;" />
 
@@ -1396,11 +1399,11 @@ export default function MyDashboard() {
                             </div>
                           </div>
 
-                          <!-- 구분선 -->
-                          <div style="width:1px;background:linear-gradient(180deg,transparent 5%,#e0dce8 20%,#e0dce8 80%,transparent 95%);"></div>
+                          <!-- 구분선 (명시 높이 — 그라디언트 element 가 0 높이가 되어 createPattern 0×0 에러나는 것 차단) -->
+                          <div style="width:1px;height:794px;background:linear-gradient(180deg,transparent 5%,#e0dce8 20%,#e0dce8 80%,transparent 95%);"></div>
 
-                          <!-- 우측 40% -->
-                          <div style="width:40%;height:100%;background:linear-gradient(160deg,#5b35a8 0%,#3a1d80 40%,#1a1045 100%);padding:35px 32px;display:flex;flex-direction:column;box-sizing:border-box;position:relative;">
+                          <!-- 우측 (448px = 1122 - 673 - 1) -->
+                          <div style="width:448px;height:794px;background:linear-gradient(160deg,#5b35a8 0%,#3a1d80 40%,#1a1045 100%);padding:35px 32px;display:flex;flex-direction:column;box-sizing:border-box;position:relative;">
                             <!-- 인증 마크 -->
                             <div style="width:150px;height:150px;border-radius:50%;border:3px solid rgba(255,255,255,0.2);display:flex;flex-direction:column;align-items:center;justify-content:center;position:absolute;top:20px;right:20px;background:radial-gradient(circle,rgba(100,70,200,0.35) 0%,transparent 70%);">
                               <div style="width:125px;height:125px;border-radius:50%;border:2px solid rgba(255,255,255,0.35);display:flex;flex-direction:column;align-items:center;justify-content:center;">
@@ -1444,6 +1447,18 @@ export default function MyDashboard() {
                             }
                           }
                         }));
+
+                        // 그라디언트 element 들이 실제로 0×0 이 아닌지 강제 reflow 후 확인.
+                        // 0 dim 인 element 가 있으면 그 자리를 빈 div 로 교체해 createPattern 폭주 차단.
+                        void certEl.getBoundingClientRect();
+                        const gradientEls = Array.from(certEl.querySelectorAll<HTMLElement>('[style*="gradient"]'));
+                        for (const el of gradientEls) {
+                          const r = el.getBoundingClientRect();
+                          if (r.width === 0 || r.height === 0) {
+                            console.warn('[cert] 0-dim gradient element 발견, background 제거:', el, r);
+                            el.style.background = 'transparent';
+                          }
+                        }
 
                         const canvas = await html2canvas(certEl, { scale: 2, backgroundColor: '#fff', useCORS: true, logging: false });
                         const imgData = canvas.toDataURL('image/png');
